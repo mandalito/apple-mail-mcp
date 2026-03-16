@@ -8,6 +8,7 @@ from apple_mail_mcp.core import (
     escape_applescript,
     run_applescript,
     inbox_mailbox_script,
+    build_mailbox_ref,
     date_cutoff_script,
     LOWERCASE_HANDLER,
 )
@@ -256,16 +257,8 @@ def get_needs_response(
         try
             set targetAccount to account "{escaped_account}"
 
-            -- Get target mailbox
-            try
-                set targetMailbox to mailbox "{escaped_mailbox}" of targetAccount
-            on error
-                if "{escaped_mailbox}" is "INBOX" then
-                    set targetMailbox to mailbox "Inbox" of targetAccount
-                else
-                    error "Mailbox not found: {escaped_mailbox}"
-                end if
-            end try
+            -- Get target mailbox (locale-aware inbox fallback)
+            {build_mailbox_ref(mailbox, "targetAccount", "targetMailbox")}
 
             -- Collect sent subjects for "already replied" detection
             set sentSubjects to {{}}
@@ -481,16 +474,8 @@ def get_top_senders(
         try
             set targetAccount to account "{escaped_account}"
 
-            -- Get target mailbox
-            try
-                set targetMailbox to mailbox "{escaped_mailbox}" of targetAccount
-            on error
-                if "{escaped_mailbox}" is "INBOX" then
-                    set targetMailbox to mailbox "Inbox" of targetAccount
-                else
-                    error "Mailbox not found: {escaped_mailbox}"
-                end if
-            end try
+            -- Get target mailbox (locale-aware inbox fallback)
+            {build_mailbox_ref(mailbox, "targetAccount", "targetMailbox")}
 
             set mailboxMessages to every message of targetMailbox
             set senderKeys to {{}}

@@ -40,9 +40,17 @@ def create_inbox_dashboard_ui(
     with open(template_path, "r", encoding="utf-8") as f:
         template_content = f.read()
 
-    # Serialize the data for injection into the template
-    accounts_json = json.dumps(accounts_data, ensure_ascii=False)
-    emails_json = json.dumps(recent_emails, ensure_ascii=False)
+    # Serialize the data for injection into the template.
+    # ensure_ascii=True so non-ASCII chars become \uXXXX escapes (safe in JS).
+    # We also escape sequences that could break out of a <script> context:
+    #   </  -> <\/   (prevents </script> injection)
+    #   <!--  -> <\!-- (prevents HTML comment injection)
+    def _safe_json_for_html(data: object) -> str:
+        raw = json.dumps(data, ensure_ascii=True)
+        return raw.replace("</", r"<\/").replace("<!--", r"<\!--")
+
+    accounts_json = _safe_json_for_html(accounts_data)
+    emails_json = _safe_json_for_html(recent_emails)
 
     # Inject data into the template
     html_content = template_content.replace(

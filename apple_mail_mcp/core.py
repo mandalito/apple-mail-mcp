@@ -1,9 +1,19 @@
 """Core helpers: AppleScript execution, escaping, parsing, and preference injection."""
 
+import re
 import subprocess
 from typing import List, Dict, Any
 
 from apple_mail_mcp.server import USER_PREFERENCES
+
+# Maximum length for user-supplied strings interpolated into AppleScript.
+# Prevents abuse via extremely long payloads.
+MAX_INPUT_LENGTH = 2000
+
+# Pattern matching characters that should never appear in AppleScript string
+# interpolations.  Null bytes and other C0 controls (except \t, \n, \r which
+# are handled by escape_applescript) can confuse osascript.
+_DANGEROUS_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
 
 def inject_preferences(func):
@@ -16,13 +26,29 @@ def inject_preferences(func):
     return func
 
 
+def validate_input(value: str, field_name: str = "input", max_length: int = MAX_INPUT_LENGTH) -> str:
+    """Validate and sanitize a user-supplied string before AppleScript use.
+
+    Raises ValueError if the input is too long or contains dangerous control
+    characters that could interfere with AppleScript parsing.
+    """
+    if len(value) > max_length:
+        raise ValueError(
+            f"{field_name} is too long ({len(value)} chars, max {max_length})"
+        )
+    cleaned = _DANGEROUS_CHARS.sub('', value)
+    return cleaned
+
+
 def escape_applescript(value: str) -> str:
     """Escape a string for safe injection into AppleScript double-quoted strings.
 
     Handles backslashes first, then double quotes, then newlines/returns/tabs,
     and Unicode line/paragraph separators to prevent injection and AppleScript
-    syntax errors.
+    syntax errors.  Also strips dangerous control characters.
     """
+    # Strip dangerous control characters first
+    value = _DANGEROUS_CHARS.sub('', value)
     return (
         value
         .replace('\\', '\\\\')
@@ -128,13 +154,16 @@ LOWERCASE_HANDLER = '''
 
 
 def inbox_mailbox_script(var_name: str = "inboxMailbox", account_var: str = "anAccount") -> str:
-    """Return AppleScript snippet to get inbox mailbox with INBOX/Inbox fallback."""
+    """Return AppleScript snippet to get inbox mailbox with locale-aware fallback."""
     return f'''
-                try
-                    set {var_name} to mailbox "INBOX" of {account_var}
-                on error
-                    set {var_name} to mailbox "Inbox" of {account_var}
-                end try'''
+                set {var_name} to missing value
+                repeat with candidateName in {{"INBOX", "Inbox", "Boîte de réception", "Entrada", "Posteingang", "Posta in arrivo", "Postvak IN", "Indbakke", "Innboks", "Inkorg"}}
+                    try
+                        set {var_name} to mailbox (candidateName as text) of {account_var}
+                        exit repeat
+                    end try
+                end repeat
+                if {var_name} is missing value then error "Inbox mailbox not found for account " & name of {account_var}'''
 
 
 def content_preview_script(max_length: int, output_var: str = "outputText") -> str:
@@ -200,14 +229,13 @@ def build_mailbox_ref(
         ref += account_var
         return f'set {var_name} to {ref}'
 
+    if mailbox.upper() == "INBOX":
+        return inbox_mailbox_script(var_name, account_var)
+
     return f'''try
                 set {var_name} to mailbox "{escaped}" of {account_var}
             on error
-                if "{escaped}" is "INBOX" then
-                    set {var_name} to mailbox "Inbox" of {account_var}
-                else
-                    error "Mailbox not found: {escaped}"
-                end if
+                error "Mailbox not found: {escaped}"
             end try'''
 
 

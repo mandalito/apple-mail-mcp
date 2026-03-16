@@ -4,7 +4,7 @@ import os
 from typing import Optional, List, Dict, Any
 
 from apple_mail_mcp.server import mcp
-from apple_mail_mcp.core import inject_preferences, escape_applescript, run_applescript, inbox_mailbox_script
+from apple_mail_mcp.core import inject_preferences, escape_applescript, run_applescript, inbox_mailbox_script, build_mailbox_ref
 from apple_mail_mcp.constants import SKIP_FOLDERS
 
 
@@ -359,15 +359,7 @@ def get_statistics(
 
             try
                 set targetAccount to account "{escaped_account}"
-                try
-                    set targetMailbox to mailbox "{mailbox_param}" of targetAccount
-                on error
-                    if "{mailbox_param}" is "INBOX" then
-                        set targetMailbox to mailbox "Inbox" of targetAccount
-                    else
-                        error "Mailbox not found"
-                    end if
-                end try
+                {build_mailbox_ref(mailbox_param, "targetAccount", "targetMailbox")}
 
                 set mailboxMessages to every message of targetMailbox
                 set totalMessages to count of mailboxMessages
@@ -440,16 +432,8 @@ def export_emails(
 
             try
                 set targetAccount to account "{safe_account}"
-                -- Try to get mailbox
-                try
-                    set targetMailbox to mailbox "{safe_mailbox}" of targetAccount
-                on error
-                    if "{safe_mailbox}" is "INBOX" then
-                        set targetMailbox to mailbox "Inbox" of targetAccount
-                    else
-                        error "Mailbox not found: {safe_mailbox}"
-                    end if
-                end try
+                -- Get mailbox (locale-aware inbox fallback)
+                {build_mailbox_ref(mailbox, "targetAccount", "targetMailbox")}
 
                 set mailboxMessages to every message of targetMailbox
                 set foundMessage to missing value
@@ -530,16 +514,8 @@ def export_emails(
 
             try
                 set targetAccount to account "{safe_account}"
-                -- Try to get mailbox
-                try
-                    set targetMailbox to mailbox "{safe_mailbox}" of targetAccount
-                on error
-                    if "{safe_mailbox}" is "INBOX" then
-                        set targetMailbox to mailbox "Inbox" of targetAccount
-                    else
-                        error "Mailbox not found: {safe_mailbox}"
-                    end if
-                end try
+                -- Get mailbox (locale-aware inbox fallback)
+                {build_mailbox_ref(mailbox, "targetAccount", "targetMailbox")}
 
                 set mailboxMessages to every message of targetMailbox
                 set messageCount to count of mailboxMessages

@@ -7,7 +7,7 @@ from typing import Optional, List, Tuple
 
 
 from apple_mail_mcp.server import mcp
-from apple_mail_mcp.core import inject_preferences, escape_applescript, run_applescript, inbox_mailbox_script
+from apple_mail_mcp.core import inject_preferences, escape_applescript, run_applescript, inbox_mailbox_script, build_mailbox_ref, validate_input
 
 
 def _send_html_email(
@@ -72,6 +72,7 @@ def _send_html_email(
     tmp.write(body_html)
     tmp.close()
     html_temp_path = tmp.name
+    os.chmod(html_temp_path, 0o600)
 
     script = f'''
 use framework "Foundation"
@@ -79,7 +80,7 @@ use framework "AppKit"
 use scripting additions
 
 -- Step 1: Read HTML from temp file and place on clipboard
-set htmlString to do shell script "cat '{html_temp_path}'"
+set htmlString to do shell script "cat " & quoted form of "{html_temp_path}"
 set pb to current application's NSPasteboard's generalPasteboard()
 
 -- Save current clipboard for restoration
@@ -131,7 +132,7 @@ tell application "System Events"
 end tell
 
 -- Step 5: Clean up temp file
-do shell script "rm -f '{html_temp_path}'"
+do shell script "rm -f " & quoted form of "{html_temp_path}"
 
 -- Step 6: Restore clipboard
 if oldClip is not missing value then
@@ -231,12 +232,15 @@ def reply_to_email(
     reply_to_all: bool = False,
     cc: Optional[str] = None,
     bcc: Optional[str] = None,
-    send: bool = True,
+    send: bool = False,
     mode: Optional[str] = None,
     attachments: Optional[str] = None
 ) -> str:
     """
     Reply to an email matching a subject keyword.
+
+    IMPORTANT: Defaults to saving as draft. Set mode="send" to send immediately,
+    or mode="open" to open a compose window for review.
 
     Args:
         account: Account name (e.g., "Gmail", "Work")
@@ -245,13 +249,25 @@ def reply_to_email(
         reply_to_all: If True, reply to all recipients; if False, reply only to sender (default: False)
         cc: Optional CC recipients, comma-separated for multiple
         bcc: Optional BCC recipients, comma-separated for multiple
-        send: If True (default), send immediately; if False, save as draft. Ignored if mode is set.
-        mode: Delivery mode — "send" (send immediately), "draft" (save silently), or "open" (open compose window for review). Overrides send parameter when set.
+        send: If False (default), save as draft; if True, send immediately. Ignored if mode is set.
+        mode: Delivery mode — "draft" (save silently, default when send=False), "open" (open compose window for review), or "send" (send immediately — use with caution). Overrides send parameter when set.
         attachments: Optional file paths to attach, comma-separated for multiple (e.g., "/path/to/file1.png,/path/to/file2.pdf")
 
     Returns:
         Confirmation message with details of the reply sent, saved draft, or opened draft
     """
+
+    # Validate inputs
+    try:
+        validate_input(account, "account", max_length=200)
+        validate_input(subject_keyword, "subject_keyword", max_length=1000)
+        validate_input(reply_body, "reply_body", max_length=100000)
+        if cc:
+            validate_input(cc, "cc", max_length=1000)
+        if bcc:
+            validate_input(bcc, "bcc", max_length=1000)
+    except ValueError as e:
+        return f"Error: {e}"
 
     # Escape all user inputs for AppleScript
     safe_account = escape_applescript(account)
@@ -266,6 +282,7 @@ def reply_to_email(
     body_tmp.write(reply_body)
     body_tmp.close()
     body_temp_path = body_tmp.name
+    os.chmod(body_temp_path, 0o600)
 
     # Build the reply command based on reply_to_all flag
     if reply_to_all:
@@ -481,11 +498,14 @@ def compose_email(
     cc: Optional[str] = None,
     bcc: Optional[str] = None,
     attachments: Optional[str] = None,
-    mode: str = "send",
+    mode: str = "draft",
     body_html: Optional[str] = None
 ) -> str:
     """
-    Compose and send a new email from a specific account.
+    Compose a new email from a specific account.
+
+    IMPORTANT: Defaults to saving as draft. Set mode="send" to send immediately,
+    or mode="open" to open a compose window for review.
 
     Args:
         account: Account name to send from (e.g., "Gmail", "Work", "Personal")
@@ -495,7 +515,7 @@ def compose_email(
         cc: Optional CC recipients, comma-separated for multiple
         bcc: Optional BCC recipients, comma-separated for multiple
         attachments: Optional file paths to attach, comma-separated for multiple (e.g., "/path/to/file1.png,/path/to/file2.pdf")
-        mode: Delivery mode — "send" (send immediately, default), "draft" (save silently to Drafts), or "open" (open compose window for review before sending)
+        mode: Delivery mode — "draft" (save to Drafts, default), "open" (open compose window for review), or "send" (send immediately — use with caution)
         body_html: Optional HTML body for rich formatting (bold, headings, links, colors). When provided, the email is sent as HTML. The plain 'body' field is still required as fallback text.
 
     Returns:
@@ -505,6 +525,19 @@ def compose_email(
     # Validate mode
     if mode not in ("send", "draft", "open"):
         return f"Error: Invalid mode '{mode}'. Use: send, draft, open"
+
+    # Validate inputs to prevent oversized or malformed payloads
+    try:
+        validate_input(account, "account", max_length=200)
+        validate_input(to, "to", max_length=1000)
+        validate_input(subject, "subject", max_length=1000)
+        validate_input(body, "body", max_length=100000)
+        if cc:
+            validate_input(cc, "cc", max_length=1000)
+        if bcc:
+            validate_input(bcc, "bcc", max_length=1000)
+    except ValueError as e:
+        return f"Error: {e}"
 
     # Validate and resolve attachments early
     attachment_script = ''
@@ -667,10 +700,14 @@ def forward_email(
     message: Optional[str] = None,
     mailbox: str = "INBOX",
     cc: Optional[str] = None,
-    bcc: Optional[str] = None
+    bcc: Optional[str] = None,
+    mode: str = "draft",
 ) -> str:
     """
     Forward an email to one or more recipients.
+
+    IMPORTANT: Defaults to saving as draft. Set mode="send" to send immediately,
+    or mode="open" to open a compose window for review.
 
     Args:
         account: Account name (e.g., "Gmail", "Work")
@@ -680,10 +717,30 @@ def forward_email(
         mailbox: Mailbox to search in (default: "INBOX")
         cc: Optional CC recipients, comma-separated for multiple
         bcc: Optional BCC recipients, comma-separated for multiple
+        mode: Delivery mode — "draft" (save to Drafts, default), "open" (open compose window for review), or "send" (send immediately — use with caution)
 
     Returns:
         Confirmation message with details of forwarded email
     """
+
+    # Validate mode
+    if mode not in ("send", "draft", "open"):
+        return f"Error: Invalid mode '{mode}'. Use: draft, open, send"
+
+    # Validate inputs
+    try:
+        validate_input(account, "account", max_length=200)
+        validate_input(subject_keyword, "subject_keyword", max_length=1000)
+        validate_input(to, "to", max_length=1000)
+        validate_input(mailbox, "mailbox", max_length=500)
+        if message:
+            validate_input(message, "message", max_length=100000)
+        if cc:
+            validate_input(cc, "cc", max_length=1000)
+        if bcc:
+            validate_input(bcc, "bcc", max_length=1000)
+    except ValueError as e:
+        return f"Error: {e}"
 
     # Escape all user inputs for AppleScript
     safe_account = escape_applescript(account)
@@ -724,22 +781,29 @@ def forward_email(
                 make new to recipient at end of to recipients of forwardMessage with properties {{address:"{safe_addr}"}}
         '''
 
+    # Determine behavior per mode
+    if mode == "send":
+        header_text = "FORWARDING EMAIL"
+        send_or_draft_command = "send forwardMessage"
+        success_text = "Email forwarded successfully!"
+    elif mode == "open":
+        header_text = "OPENING FORWARD FOR REVIEW"
+        send_or_draft_command = """set visible of forwardMessage to true
+                activate"""
+        success_text = "Forward opened in Mail for review. Edit and send when ready."
+    else:  # draft
+        header_text = "SAVING FORWARD AS DRAFT"
+        send_or_draft_command = "close window 1 saving yes"
+        success_text = "Forward saved as draft!"
+
     script = f'''
     tell application "Mail"
-        set outputText to "FORWARDING EMAIL" & return & return
+        set outputText to "{header_text}" & return & return
 
         try
             set targetAccount to account "{safe_account}"
-            -- Try to get mailbox
-            try
-                set targetMailbox to mailbox "{safe_mailbox}" of targetAccount
-            on error
-                if "{safe_mailbox}" is "INBOX" then
-                    set targetMailbox to mailbox "Inbox" of targetAccount
-                else
-                    error "Mailbox not found: {safe_mailbox}"
-                end if
-            end try
+            -- Get mailbox (locale-aware inbox fallback)
+            {build_mailbox_ref(mailbox, "targetAccount", "targetMailbox")}
 
             set mailboxMessages to every message of targetMailbox
             set foundMessage to missing value
@@ -781,10 +845,10 @@ def forward_email(
                     set content of forwardMessage to "{escaped_message}" & return & return & content of forwardMessage
                 end if
 
-                -- Send the forward
-                send forwardMessage
+                -- Send, save as draft, or leave open for review
+                {send_or_draft_command}
 
-                set outputText to outputText & "✓ Email forwarded successfully!" & return & return
+                set outputText to outputText & "{success_text}" & return & return
                 set outputText to outputText & "Original email:" & return
                 set outputText to outputText & "  Subject: " & messageSubject & return
                 set outputText to outputText & "  From: " & messageSender & return
@@ -829,10 +893,14 @@ def manage_drafts(
     body: Optional[str] = None,
     cc: Optional[str] = None,
     bcc: Optional[str] = None,
-    draft_subject: Optional[str] = None
+    draft_subject: Optional[str] = None,
+    confirm_send: bool = False,
 ) -> str:
     """
     Manage draft emails - list, create, send, open, or delete drafts.
+
+    IMPORTANT: The "send" action requires confirm_send=True as a safety gate.
+    Prefer "open" to review drafts before sending manually.
 
     Args:
         account: Account name (e.g., "Gmail", "Work")
@@ -843,6 +911,7 @@ def manage_drafts(
         cc: Optional CC recipients for create
         bcc: Optional BCC recipients for create
         draft_subject: Subject keyword to find draft (required for send/open/delete)
+        confirm_send: Must be True to execute the "send" action (safety confirmation)
 
     Returns:
         Formatted output based on action
@@ -959,6 +1028,11 @@ def manage_drafts(
     elif action == "send":
         if not draft_subject:
             return "Error: 'draft_subject' is required for sending drafts"
+        if not confirm_send:
+            return (
+                "Safety gate: sending a draft requires confirm_send=True. "
+                "Consider using action='open' to review the draft in Mail first."
+            )
 
         safe_draft_subject = escape_applescript(draft_subject)
 

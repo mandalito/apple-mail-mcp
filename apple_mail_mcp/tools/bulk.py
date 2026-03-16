@@ -3,7 +3,7 @@
 from typing import Optional
 
 from apple_mail_mcp.server import mcp
-from apple_mail_mcp.core import inject_preferences, escape_applescript, run_applescript
+from apple_mail_mcp.core import inject_preferences, escape_applescript, run_applescript, build_mailbox_ref
 
 
 # ---------------------------------------------------------------------------
@@ -35,18 +35,8 @@ def _mailbox_fallback_script(
     mailbox_name: str,
     account_var: str = "targetAccount",
 ) -> str:
-    """Return AppleScript snippet that resolves a mailbox with INBOX/Inbox fallback."""
-    safe = escape_applescript(mailbox_name)
-    return f'''
-            try
-                set {var_name} to mailbox "{safe}" of {account_var}
-            on error
-                if "{safe}" is "INBOX" then
-                    set {var_name} to mailbox "Inbox" of {account_var}
-                else
-                    error "Mailbox not found: {safe}"
-                end if
-            end try'''
+    """Return AppleScript snippet that resolves a mailbox with locale-aware inbox fallback."""
+    return build_mailbox_ref(mailbox_name, account_var, var_name)
 
 
 def _date_filter_script(older_than_days: Optional[int]) -> str:
@@ -311,10 +301,13 @@ def bulk_move_emails(
     from_mailbox: str = "INBOX",
     older_than_days: Optional[int] = None,
     max_emails: int = 50,
-    dry_run: bool = False,
+    dry_run: bool = True,
 ) -> str:
     """
     Move multiple emails matching filters to a destination mailbox.
+
+    IMPORTANT: dry_run=True by default -- shows what WOULD be moved without acting.
+    Set dry_run=False to actually move emails.
 
     Both from_mailbox (source) and to_mailbox (destination) are required.
     At least one filter (subject_keyword, sender, or older_than_days) is required.
@@ -327,7 +320,7 @@ def bulk_move_emails(
         from_mailbox: Source mailbox (default: "INBOX")
         older_than_days: Only affect emails older than N days
         max_emails: Maximum number of emails to move (safety limit, default: 50)
-        dry_run: If True, preview what would be moved without acting (default: False)
+        dry_run: If True (default), only preview what would be moved
 
     Returns:
         Summary of moved emails with count

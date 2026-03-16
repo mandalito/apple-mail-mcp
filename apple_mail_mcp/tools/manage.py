@@ -63,16 +63,8 @@ def move_email(
 
         try
             set targetAccount to account "{safe_account}"
-            -- Try to get source mailbox (handle both "INBOX"/"Inbox" variations)
-            try
-                set sourceMailbox to mailbox "{safe_from_mailbox}" of targetAccount
-            on error
-                if "{safe_from_mailbox}" is "INBOX" then
-                    set sourceMailbox to mailbox "Inbox" of targetAccount
-                else
-                    error "Source mailbox not found"
-                end if
-            end try
+            -- Get source mailbox (locale-aware inbox fallback)
+            {build_mailbox_ref(from_mailbox, "targetAccount", "sourceMailbox")}
 
             -- Get destination mailbox (handles nested mailboxes)
             set destMailbox to {dest_mailbox_script}
@@ -471,16 +463,8 @@ def manage_trash(
 
             try
                 set targetAccount to account "{safe_account}"
-                -- Get source mailbox
-                try
-                    set sourceMailbox to mailbox "{safe_mailbox}" of targetAccount
-                on error
-                    if "{safe_mailbox}" is "INBOX" then
-                        set sourceMailbox to mailbox "Inbox" of targetAccount
-                    else
-                        error "Mailbox not found: {safe_mailbox}"
-                    end if
-                end try
+                -- Get source mailbox (locale-aware inbox fallback)
+                {build_mailbox_ref(mailbox, "targetAccount", "sourceMailbox")}
 
                 -- Get trash mailbox
                 set trashMailbox to mailbox "Trash" of targetAccount
