@@ -10,6 +10,44 @@ from apple_mail_mcp.server import mcp
 from apple_mail_mcp.core import inject_preferences, escape_applescript, run_applescript, inbox_mailbox_script, build_mailbox_ref, validate_input
 
 
+@mcp.tool()
+@inject_preferences
+def list_signatures() -> str:
+    """
+    List all available Mail signatures.
+
+    Returns:
+        List of signature names that can be used with the signature parameter
+        in reply_to_email, compose_email, and forward_email.
+    """
+    script = '''
+    tell application "Mail"
+        set sigNames to name of every signature
+        if (count of sigNames) is 0 then
+            return "No signatures found."
+        end if
+        set outputText to "AVAILABLE SIGNATURES" & return & return
+        repeat with i from 1 to count of sigNames
+            set outputText to outputText & i & ". " & (item i of sigNames) & return
+        end repeat
+        return outputText
+    end tell
+    '''
+    return run_applescript(script)
+
+
+def _signature_script(signature: Optional[str], msg_var: str = "replyMessage") -> str:
+    """Return AppleScript snippet to set a signature on an outgoing message."""
+    if not signature:
+        return f"-- Using default signature for {msg_var}"
+    safe_sig = escape_applescript(signature)
+    return f'''try
+                    set message signature of {msg_var} to signature "{safe_sig}"
+                on error
+                    -- Signature not found, keep default
+                end try'''
+
+
 def _send_html_email(
     account: str,
     to: str,
@@ -234,7 +272,8 @@ def reply_to_email(
     bcc: Optional[str] = None,
     send: bool = False,
     mode: Optional[str] = None,
-    attachments: Optional[str] = None
+    attachments: Optional[str] = None,
+    signature: Optional[str] = None
 ) -> str:
     """
     Reply to an email matching a subject keyword.
@@ -252,6 +291,7 @@ def reply_to_email(
         send: If False (default), save as draft; if True, send immediately. Ignored if mode is set.
         mode: Delivery mode — "draft" (save silently, default when send=False), "open" (open compose window for review), or "send" (send immediately — use with caution). Overrides send parameter when set.
         attachments: Optional file paths to attach, comma-separated for multiple (e.g., "/path/to/file1.png,/path/to/file2.pdf")
+        signature: Optional signature name to use (from list_signatures). If not provided, uses account default.
 
     Returns:
         Confirmation message with details of the reply sent, saved draft, or opened draft
@@ -371,14 +411,11 @@ def reply_to_email(
         header_text = "SAVING REPLY AS DRAFT"
         send_or_draft_command = "close window 1 saving yes"
         success_text = "Reply saved as draft!"
-        # For draft, we must manually build the quoted original because
-        # close-window-saving-yes saves the content property literally
-        # and the reply message's content property is initially empty
-        set_content_script = '''set origContent to content of foundMessage
-                set origSender to sender of foundMessage
-                set origDate to date received of foundMessage
-                set quotedText to "On " & (origDate as string) & ", " & origSender & " wrote:" & return & return & origContent
-                set content of replyMessage to replyBodyText & return & return & quotedText'''
+        # Set content to reply body only (no manual thread).
+        # Mail places the signature right after the body in correct position.
+        # The quoted thread is omitted here but visible in Mail's conversation
+        # view when the user opens the draft to review and send.
+        set_content_script = 'set content of replyMessage to replyBodyText'
 
     cleanup_script = f'do shell script "rm -f " & quoted form of "{body_temp_path}"'
 
@@ -420,6 +457,9 @@ def reply_to_email(
                 set emailAddrs to email addresses of targetAccount
                 set senderAddress to item 1 of emailAddrs
                 set sender of replyMessage to senderAddress
+
+                -- Set signature
+                {_signature_script(signature, "replyMessage")}
 
                 -- Set reply content
                 {set_content_script}
@@ -499,7 +539,8 @@ def compose_email(
     bcc: Optional[str] = None,
     attachments: Optional[str] = None,
     mode: str = "draft",
-    body_html: Optional[str] = None
+    body_html: Optional[str] = None,
+    signature: Optional[str] = None
 ) -> str:
     """
     Compose a new email from a specific account.
@@ -517,6 +558,7 @@ def compose_email(
         attachments: Optional file paths to attach, comma-separated for multiple (e.g., "/path/to/file1.png,/path/to/file2.pdf")
         mode: Delivery mode — "draft" (save to Drafts, default), "open" (open compose window for review), or "send" (send immediately — use with caution)
         body_html: Optional HTML body for rich formatting (bold, headings, links, colors). When provided, the email is sent as HTML. The plain 'body' field is still required as fallback text.
+        signature: Optional signature name to use (from list_signatures). If not provided, uses account default.
 
     Returns:
         Confirmation message with details of the email
@@ -640,6 +682,9 @@ def compose_email(
             set senderAddress to item 1 of emailAddrs
             set sender of newMessage to senderAddress
 
+            -- Set signature
+            {_signature_script(signature, "newMessage")}
+
             -- Add TO/CC/BCC recipients
             tell newMessage
                 {to_script}
@@ -702,6 +747,7 @@ def forward_email(
     cc: Optional[str] = None,
     bcc: Optional[str] = None,
     mode: str = "draft",
+    signature: Optional[str] = None,
 ) -> str:
     """
     Forward an email to one or more recipients.
@@ -718,6 +764,7 @@ def forward_email(
         cc: Optional CC recipients, comma-separated for multiple
         bcc: Optional BCC recipients, comma-separated for multiple
         mode: Delivery mode — "draft" (save to Drafts, default), "open" (open compose window for review), or "send" (send immediately — use with caution)
+        signature: Optional signature name to use (from list_signatures). If not provided, uses account default.
 
     Returns:
         Confirmation message with details of forwarded email
@@ -832,6 +879,9 @@ def forward_email(
                 set emailAddrs to email addresses of targetAccount
                 set senderAddress to item 1 of emailAddrs
                 set sender of forwardMessage to senderAddress
+
+                -- Set signature
+                {_signature_script(signature, "forwardMessage")}
 
                 -- Add recipients
                 {to_script}
