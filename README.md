@@ -1,7 +1,7 @@
 # Apple Mail MCP Server
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io)
 [![GitHub stars](https://img.shields.io/github/stars/patrickfreyer/apple-mail-mcp?style=social)](https://github.com/patrickfreyer/apple-mail-mcp/stargazers)
 
@@ -11,15 +11,17 @@
 
 An MCP server that gives AI assistants full access to Apple Mail -- read, search, compose, organize, and analyze emails via natural language. Built with [FastMCP](https://github.com/jlowin/fastmcp).
 
+**Locale-aware:** Works with localized mailbox names (English, French, German, Spanish, Italian, and more).
+
 ## Quick Start
 
-**Prerequisites:** macOS with Apple Mail configured, Python 3.7+
+**Prerequisites:** macOS with Apple Mail configured, Python 3.10+
 
 ```bash
 git clone https://github.com/patrickfreyer/apple-mail-mcp.git
 cd apple-mail-mcp
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
 ```
 
 Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
@@ -28,8 +30,8 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 {
   "mcpServers": {
     "apple-mail": {
-      "command": "/path/to/apple-mail-mcp/venv/bin/python3",
-      "args": ["/path/to/apple-mail-mcp/apple_mail_mcp.py"]
+      "command": "/path/to/apple-mail-mcp/.venv/bin/python3",
+      "args": ["-m", "apple_mail_mcp"]
     }
   }
 }
@@ -39,40 +41,50 @@ Restart Claude Desktop and grant Mail.app permissions when prompted.
 
 > **Tip:** An `.mcpb` bundle is also available on the [Releases](https://github.com/patrickfreyer/apple-mail-mcp/releases) page for one-click install in Claude Desktop.
 
-## Tools (26)
+## Tools (28)
 
 ### Reading & Search
 | Tool | Description |
 |------|-------------|
-| `get_inbox_overview` | Dashboard with unread counts, folders, and recent emails |
-| `list_inbox_emails` | List emails with account/read-status filtering |
-| `get_email_with_content` | Search emails with full content preview |
-| `get_unread_count` | Unread count per account |
 | `list_accounts` | List all configured Mail accounts |
+| `list_inbox_emails` | List emails with account/read-status filtering |
+| `get_inbox_overview` | Dashboard with unread counts, folders, and recent emails |
+| `get_unread_count` | Unread count per account |
 | `get_recent_emails` | Recent emails from a specific account |
-| `get_recent_from_sender` | Recent emails from a sender with time-range filters |
-| `search_emails` | Advanced multi-criteria search (subject, sender, dates, attachments) |
-| `search_by_sender` | Find all emails from a specific sender |
-| `search_email_content` | Full-text search in email bodies |
-| `search_all_accounts` | Cross-account unified search |
-| `get_newsletters` | Detect newsletter and subscription emails |
-| `get_email_thread` | Conversation thread view |
+| `search_emails` | Unified search with filters: subject, sender, dates, body, attachments, flagged, newsletters, threads |
+
+### Composition
+| Tool | Description |
+|------|-------------|
+| `compose_email` | Compose new emails (TO, CC, BCC) with plain text or HTML body. Defaults to draft mode. |
+| `reply_to_email` | Reply or reply-all with optional CC/BCC, signature selection, and precise email targeting via sender/date filters |
+| `forward_email` | Forward with optional message, CC/BCC, and signature selection |
+| `manage_drafts` | Create, list, send, open, and delete drafts |
+| `list_signatures` | List all available Mail signatures for use in compose/reply/forward |
 
 ### Organization
 | Tool | Description |
 |------|-------------|
 | `list_mailboxes` | Folder hierarchy with message counts |
-| `move_email` | Move emails between folders (supports nested paths) |
-| `update_email_status` | Batch mark read/unread, flag/unflag |
+| `create_mailbox` | Create new mailboxes/folders |
+| `move_email` | Move emails between folders (supports nested paths like `Projects/2024`) |
+| `mark_emails` | Batch mark read/unread, flagged/unflagged with filters |
+| `update_email_status` | Update read/flag status for individual emails |
+| `archive_emails` | Archive emails matching filters |
+| `delete_emails` | Soft delete (move to Trash) with dry-run preview |
 | `manage_trash` | Soft delete, permanent delete, empty trash |
 
-### Composition
+### Bulk Operations
 | Tool | Description |
 |------|-------------|
-| `compose_email` | Send new emails (TO, CC, BCC) |
-| `reply_to_email` | Reply or reply-all with optional CC/BCC |
-| `forward_email` | Forward with optional message, CC/BCC |
-| `manage_drafts` | Create, list, send, and delete drafts |
+| `bulk_move_emails` | Move multiple emails matching filters to a destination mailbox |
+
+### Smart Inbox
+| Tool | Description |
+|------|-------------|
+| `get_awaiting_reply` | Find emails you're waiting for a reply on |
+| `get_needs_response` | Prioritized list of emails that need your response |
+| `get_top_senders` | Top senders by email volume |
 
 ### Attachments
 | Tool | Description |
@@ -87,6 +99,44 @@ Restart Claude Desktop and grant Mail.app permissions when prompted.
 | `export_emails` | Export single emails or mailboxes to TXT/HTML |
 | `inbox_dashboard` | Interactive UI dashboard (requires mcp-ui-server) |
 
+## Key Features
+
+### Signature Selection
+
+List available signatures and use them in any compose/reply/forward operation:
+
+```
+List my signatures
+Reply to the LNS email with my ALESI signature
+```
+
+### Precise Email Targeting
+
+Reply to specific emails in a thread using sender and date/time filters:
+
+```
+Reply to Christophe's email from March 13 about the data request
+```
+
+The `reply_to_email` tool supports:
+- **`mailbox`** -- search in any folder (Inbox, Archive, Sent, etc.)
+- **`sender`** -- filter by sender name or email (case-insensitive)
+- **`date_from` / `date_to`** -- filter by date (`YYYY-MM-DD`) or date+time (`YYYY-MM-DD HH:MM`)
+
+### Delivery Modes
+
+All composition tools support three modes:
+- **`draft`** (default) -- silently saves to Drafts
+- **`open`** -- opens a compose window in Mail for review before sending (preserves full thread and signature)
+- **`send`** -- sends immediately (use with caution)
+
+### Safety Features
+
+- Destructive operations (`delete_emails`, `bulk_move_emails`) default to **dry-run mode**
+- `manage_drafts` send action requires explicit `confirm_send=True`
+- Input validation prevents oversized or malformed payloads
+- Conservative batch limits (configurable per call)
+
 ## Configuration
 
 ### User Preferences (Optional)
@@ -97,63 +147,43 @@ Set the `USER_EMAIL_PREFERENCES` environment variable to give the assistant cont
 {
   "mcpServers": {
     "apple-mail": {
-      "command": "/path/to/venv/bin/python3",
-      "args": ["/path/to/apple_mail_mcp.py"],
+      "command": "/path/to/.venv/bin/python3",
+      "args": ["-m", "apple_mail_mcp"],
       "env": {
-        "USER_EMAIL_PREFERENCES": "Default to BCG account, show max 50 emails, prefer Archive and Projects folders"
+        "USER_EMAIL_PREFERENCES": "Default to Exchange account, show max 50 emails, prefer Archive and Projects folders"
       }
     }
   }
 }
 ```
 
-For `.mcpb` installs, configure this in Claude Desktop under **Developer > MCP Servers > Apple Mail MCP**.
-
-### Safety Limits
-
-Batch operations have conservative defaults to prevent accidental bulk actions:
-
-| Operation | Default Limit |
-|-----------|---------------|
-| `update_email_status` | 10 emails |
-| `manage_trash` | 5 emails |
-| `move_email` | 1 email |
-
-Override via function parameters when needed.
-
 ## Usage Examples
 
 ```
 Show me an overview of my inbox
-Search for emails about "project update" in my Gmail
-Reply to the email about "Domain name" with "Thanks for the update!"
-Move emails with "invoice" in the subject to my Archive folder
-Show me email statistics for the last 30 days
+Search for emails about "project update" in my Exchange account
+Reply to the latest email from Christophe about the LNS challenge
+Forward the invoice email to my accountant with a note
+List my signatures
+Show me emails I haven't replied to yet
+Archive all read newsletters older than 7 days
 ```
-
-## Email Management Skill
-
-A companion [Claude Code Skill](skill-email-management/) is included that teaches Claude expert email workflows (Inbox Zero, daily triage, folder organization). Install it alongside the MCP for intelligent, multi-step email management:
-
-```bash
-cp -r skill-email-management ~/.claude/skills/email-management
-```
-
-See [skill-email-management/README.md](skill-email-management/README.md) for details.
 
 ## Requirements
 
 - macOS with Apple Mail configured
-- Python 3.7+
+- Python 3.10+
 - `fastmcp` (+ optional `mcp-ui-server` for dashboard)
-- Claude Desktop or any MCP-compatible client
+- Claude Desktop, Claude Code, or any MCP-compatible client
 - Mail.app permissions: Automation + Mail Data Access (grant in **System Settings > Privacy & Security > Automation**)
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
+| `No module named apple_mail_mcp` | Run `pip install -e .` in the project directory |
 | Mail.app not responding | Ensure Mail.app is running; check Automation permissions in System Settings |
+| Inbox mailbox not found | Locale-aware resolution handles most cases; if your language is missing, open an issue |
 | Slow searches | Set `include_content: false` and lower `max_results` |
 | Mailbox not found | Use exact folder names; nested folders use `/` separator (e.g., `Projects/Alpha`) |
 | Permission errors | Grant access in **System Settings > Privacy & Security > Automation** |
@@ -162,10 +192,24 @@ See [skill-email-management/README.md](skill-email-management/README.md) for det
 
 ```
 apple-mail-mcp/
-├── apple_mail_mcp.py          # Main MCP server (26 tools)
-├── requirements.txt           # Python dependencies
-├── apple-mail-mcpb/           # MCP Bundle build files
-├── skill-email-management/    # Email Management Expert Skill
+├── apple_mail_mcp/
+│   ├── __init__.py
+│   ├── __main__.py            # Entry point for python -m
+│   ├── server.py              # FastMCP server setup
+│   ├── core.py                # AppleScript helpers, escaping, validation
+│   ├── constants.py           # Shared constants
+│   └── tools/
+│       ├── inbox.py           # Inbox listing and overview
+│       ├── search.py          # Unified email search
+│       ├── compose.py         # Compose, reply, forward, signatures
+│       ├── manage.py          # Move, archive, trash, mailbox management
+│       ├── bulk.py            # Bulk operations (mark, delete, move)
+│       ├── analytics.py       # Statistics and export
+│       └── smart_inbox.py     # Awaiting reply, needs response, top senders
+├── ui/
+│   └── dashboard.py           # Interactive HTML dashboard
+├── pyproject.toml             # Package configuration
+├── requirements.txt
 ├── CHANGELOG.md
 ├── LICENSE
 └── README.md
