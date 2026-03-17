@@ -268,6 +268,10 @@ def reply_to_email(
     subject_keyword: str,
     reply_body: str,
     reply_to_all: bool = False,
+    mailbox: str = "INBOX",
+    sender: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     cc: Optional[str] = None,
     bcc: Optional[str] = None,
     send: bool = False,
@@ -286,6 +290,10 @@ def reply_to_email(
         subject_keyword: Keyword to search for in email subjects
         reply_body: The body text of the reply
         reply_to_all: If True, reply to all recipients; if False, reply only to sender (default: False)
+        mailbox: Mailbox to search in (default: "INBOX"). Use specific folder names like "Archive" to reply to archived emails.
+        sender: Optional sender name or email to filter by (case-insensitive). Helps target a specific email in a thread.
+        date_from: Optional start date filter, format "YYYY-MM-DD". Only match emails on or after this date.
+        date_to: Optional end date filter, format "YYYY-MM-DD". Only match emails on or before this date.
         cc: Optional CC recipients, comma-separated for multiple
         bcc: Optional BCC recipients, comma-separated for multiple
         send: If False (default), save as draft; if True, send immediately. Ignored if mode is set.
@@ -308,6 +316,44 @@ def reply_to_email(
             validate_input(bcc, "bcc", max_length=1000)
     except ValueError as e:
         return f"Error: {e}"
+
+    # Build date filter: convert YYYY-MM-DD to AppleScript date via short date string
+    date_filter_setup = ""
+    date_from_check = ""
+    date_to_check = ""
+    if date_from:
+        # Parse YYYY-MM-DD to components and build AppleScript date
+        parts = date_from.split("-")
+        if len(parts) == 3:
+            y, m, d = parts
+            date_filter_setup += f'''
+            set dateFrom to current date
+            set year of dateFrom to {y}
+            set month of dateFrom to {m}
+            set day of dateFrom to {d}
+            set hours of dateFrom to 0
+            set minutes of dateFrom to 0
+            set seconds of dateFrom to 0'''
+            date_from_check = " and msgDate >= dateFrom"
+    if date_to:
+        parts = date_to.split("-")
+        if len(parts) == 3:
+            y, m, d = parts
+            date_filter_setup += f'''
+            set dateTo to current date
+            set year of dateTo to {y}
+            set month of dateTo to {m}
+            set day of dateTo to {d}
+            set hours of dateTo to 23
+            set minutes of dateTo to 59
+            set seconds of dateTo to 59'''
+            date_to_check = " and msgDate <= dateTo"
+
+    # Build sender filter (AppleScript `contains` is case-insensitive by default)
+    sender_check = ""
+    if sender:
+        safe_sender_filter = escape_applescript(sender)
+        sender_check = f' and msgSender contains "{safe_sender_filter}"'
 
     # Escape all user inputs for AppleScript
     safe_account = escape_applescript(account)
@@ -428,16 +474,19 @@ def reply_to_email(
             {read_body_script}
 
             set targetAccount to account "{safe_account}"
-            {inbox_mailbox_script("inboxMailbox", "targetAccount")}
-            set inboxMessages to every message of inboxMailbox
+            {build_mailbox_ref(mailbox, "targetAccount", "targetMailbox")}
+            set inboxMessages to every message of targetMailbox
             set foundMessage to missing value
+            {date_filter_setup}
 
             -- Find the first matching message
             repeat with aMessage in inboxMessages
                 try
                     set messageSubject to subject of aMessage
+                    set msgDate to date received of aMessage
+                    set msgSender to sender of aMessage
 
-                    if messageSubject contains "{safe_subject_keyword}" then
+                    if messageSubject contains "{safe_subject_keyword}"{sender_check}{date_from_check}{date_to_check} then
                         set foundMessage to aMessage
                         exit repeat
                     end if
