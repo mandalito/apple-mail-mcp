@@ -292,8 +292,8 @@ def reply_to_email(
         reply_to_all: If True, reply to all recipients; if False, reply only to sender (default: False)
         mailbox: Mailbox to search in (default: "INBOX"). Use specific folder names like "Archive" to reply to archived emails.
         sender: Optional sender name or email to filter by (case-insensitive). Helps target a specific email in a thread.
-        date_from: Optional start date filter, format "YYYY-MM-DD". Only match emails on or after this date.
-        date_to: Optional end date filter, format "YYYY-MM-DD". Only match emails on or before this date.
+        date_from: Optional start date filter, format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM" for hour-level precision. Only match emails on or after this date/time.
+        date_to: Optional end date filter, format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM" for hour-level precision. Only match emails on or before this date/time.
         cc: Optional CC recipients, comma-separated for multiple
         bcc: Optional BCC recipients, comma-separated for multiple
         send: If False (default), save as draft; if True, send immediately. Ignored if mode is set.
@@ -317,36 +317,52 @@ def reply_to_email(
     except ValueError as e:
         return f"Error: {e}"
 
-    # Build date filter: convert YYYY-MM-DD to AppleScript date via short date string
+    # Build date filter: supports "YYYY-MM-DD" or "YYYY-MM-DD HH:MM" for hour-level precision
     date_filter_setup = ""
     date_from_check = ""
     date_to_check = ""
-    if date_from:
-        # Parse YYYY-MM-DD to components and build AppleScript date
-        parts = date_from.split("-")
+
+    def _parse_date_to_applescript(date_str: str, default_time: tuple) -> tuple:
+        """Parse 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM' and return (y, m, d, h, min, s)."""
+        h, mi, s = default_time
+        if " " in date_str:
+            date_part, time_part = date_str.split(" ", 1)
+            time_parts = time_part.split(":")
+            h = int(time_parts[0]) if len(time_parts) >= 1 else default_time[0]
+            mi = int(time_parts[1]) if len(time_parts) >= 2 else default_time[1]
+            s = int(time_parts[2]) if len(time_parts) >= 3 else default_time[2]
+        else:
+            date_part = date_str
+        parts = date_part.split("-")
         if len(parts) == 3:
-            y, m, d = parts
+            return parts[0], parts[1], parts[2], h, mi, s
+        return None
+
+    if date_from:
+        parsed = _parse_date_to_applescript(date_from, (0, 0, 0))
+        if parsed:
+            y, m, d, h, mi, s = parsed
             date_filter_setup += f'''
             set dateFrom to current date
             set year of dateFrom to {y}
             set month of dateFrom to {m}
             set day of dateFrom to {d}
-            set hours of dateFrom to 0
-            set minutes of dateFrom to 0
-            set seconds of dateFrom to 0'''
+            set hours of dateFrom to {h}
+            set minutes of dateFrom to {mi}
+            set seconds of dateFrom to {s}'''
             date_from_check = " and msgDate >= dateFrom"
     if date_to:
-        parts = date_to.split("-")
-        if len(parts) == 3:
-            y, m, d = parts
+        parsed = _parse_date_to_applescript(date_to, (23, 59, 59))
+        if parsed:
+            y, m, d, h, mi, s = parsed
             date_filter_setup += f'''
             set dateTo to current date
             set year of dateTo to {y}
             set month of dateTo to {m}
             set day of dateTo to {d}
-            set hours of dateTo to 23
-            set minutes of dateTo to 59
-            set seconds of dateTo to 59'''
+            set hours of dateTo to {h}
+            set minutes of dateTo to {mi}
+            set seconds of dateTo to {s}'''
             date_to_check = " and msgDate <= dateTo"
 
     # Build sender filter (AppleScript `contains` is case-insensitive by default)
