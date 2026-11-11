@@ -66,17 +66,15 @@ def escape_applescript(value: str) -> str:
 def _sanitize_for_json(text: str) -> str:
     """Sanitize text for safe JSON serialization over MCP stdio transport.
 
-    Forces ASCII-safe output to avoid encoding issues in the
-    Desktop <-> CLI <-> MCP communication chain.
+    Preserves Unicode (accents, emoji, CJK...) while stripping control
+    characters, which are what actually break the JSON-RPC transport.
     """
     # Normalize line endings first (AppleScript uses \r)
     text = text.replace('\r\n', '\n').replace('\r', '\n')
-    # Force ASCII: replaces non-ASCII chars with their Unicode escape or drops them
-    text = text.encode('ascii', 'replace').decode('ascii')
-    # Strip remaining control characters (keep \n and \t)
+    # Strip control characters (C0, DEL, C1) but keep \n and \t
     return ''.join(
         ch for ch in text
-        if ch in ('\n', '\t') or (' ' <= ch <= '~')
+        if ch in ('\n', '\t') or not (ord(ch) < 32 or 0x7f <= ord(ch) <= 0x9f)
     )
 
 

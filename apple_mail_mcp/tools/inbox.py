@@ -181,9 +181,9 @@ def get_unread_count() -> Dict[str, int]:
         Dictionary mapping account names to unread email counts
     """
 
-    script = '''
+    script = f'''
     tell application "Mail"
-        set resultList to {}
+        set resultList to {{}}
         set allAccounts to every account
 
         repeat with anAccount in allAccounts
@@ -305,6 +305,7 @@ def get_recent_emails(
             set inboxMessages to every message of inboxMailbox
 
             set currentIndex to 0
+            set shownCount to 0
             repeat with aMessage in inboxMessages
                 set currentIndex to currentIndex + 1
                 if currentIndex > {count} then exit repeat
@@ -314,6 +315,7 @@ def get_recent_emails(
                     set messageSender to sender of aMessage
                     set messageDate to date received of aMessage
                     set messageRead to read status of aMessage
+                    set shownCount to shownCount + 1
 
                     if messageRead then
                         set readIndicator to "✓"
@@ -332,7 +334,7 @@ def get_recent_emails(
             end repeat
 
             set outputText to outputText & "========================================" & return
-            set outputText to outputText & "Showing " & (currentIndex - 1) & " email(s)" & return
+            set outputText to outputText & "Showing " & shownCount & " email(s)" & return
             set outputText to outputText & "========================================" & return
 
         on error errMsg
